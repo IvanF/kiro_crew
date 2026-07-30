@@ -40,6 +40,7 @@ class CriticAgent(BaseAgent):
     template_name = "critic"
     kiro_role = "kiro_default"
     timeout = 360
+    response_keys = ["verdict", "task_id"]
 
     def __init__(
         self,

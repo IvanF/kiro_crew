@@ -29,6 +29,11 @@ class BaseAgent(ABC):
     #: Максимальное время ожидания ответа (секунды)
     timeout: int = 300
 
+    #: Ключи верхнего уровня, которые обязаны быть в ответе агента.
+    #: Используются parse_json_response для выбора правильного JSON-объекта
+    #: из смешанного вывода (tool-output + JSON).
+    response_keys: list[str] = []
+
     def __init__(self, session_logger: SessionLogger) -> None:
         self.logger = session_logger
 
@@ -68,7 +73,7 @@ class BaseAgent(ABC):
             payload={"response_length": len(raw_response)},
         )
 
-        result = parse_json_response(raw_response)
+        result = parse_json_response(raw_response, required_keys=self.response_keys or None)
         self._validate(result)
 
         self.logger.log(

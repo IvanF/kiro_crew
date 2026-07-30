@@ -29,6 +29,7 @@ class ArchitectAgent(BaseAgent):
     template_name = "architect"
     kiro_role = "kiro_planner"
     timeout = 600  # архитектор может думать дольше
+    response_keys = ["architecture", "tasks"]
 
     def __init__(self, session_logger: SessionLogger) -> None:
         super().__init__(session_logger)

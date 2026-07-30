@@ -28,6 +28,7 @@ class CoderAgent(BaseAgent):
     template_name = "coder"
     kiro_role = "kiro_default"
     timeout = 480
+    response_keys = ["task_id", "files"]
 
     def __init__(
         self,

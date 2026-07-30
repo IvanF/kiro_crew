@@ -92,16 +92,18 @@ def _strip_ansi(text: str) -> str:
     return ansi_escape.sub("", text)
 
 
-def parse_json_response(raw: str) -> dict[str, Any]:
+def parse_json_response(raw: str, required_keys: list[str] | None = None) -> dict[str, Any]:
     """
     Извлекает JSON из ответа агента.
 
     Агент может обернуть JSON в markdown-блок ```json ... ``` или в
-    терминально-рендеренный blockquote (> json ...). Функция ищет
-    первый валидный JSON-объект используя балансировку скобок.
+    терминально-рендеренный blockquote (> json ...). Перед JSON могут
+    идти логи работы инструментов (tool-output). Функция ищет все
+    JSON-кандидаты и возвращает последний валидный объект.
 
     Args:
         raw: сырой текстовый ответ агента
+        required_keys: если задан — объект должен содержать хотя бы один из этих ключей
 
     Returns:
         Распарсенный словарь
@@ -113,78 +115,103 @@ def parse_json_response(raw: str) -> dict[str, Any]:
 
     # Попытка 1: весь ответ — чистый JSON
     try:
-        return json.loads(raw)
+        obj = json.loads(raw)
+        if isinstance(obj, dict):
+            return obj
     except json.JSONDecodeError:
         pass
 
-    # Попытка 2: извлечь из ```json ... ``` блока (жадный захват до закрывающих ```)
-    match = re.search(r"```(?:json)?\s*(\{.+?\})\s*```", raw, re.DOTALL)
-    if match:
+    # Попытка 2: извлечь из ```json ... ``` блока
+    # Ищем все такие блоки, берём последний (агент пишет финальный JSON после рассуждений)
+    for match in reversed(list(re.finditer(r"```(?:json)?\s*(\{.+?})\s*```", raw, re.DOTALL))):
         try:
-            return json.loads(match.group(1))
+            obj = json.loads(match.group(1))
+            if isinstance(obj, dict):
+                if not required_keys or any(k in obj for k in required_keys):
+                    return obj
         except json.JSONDecodeError:
-            pass
+            continue
 
-    # Попытка 3: kiro CLI рендерит markdown-блоки как "> json\n> {...}"
-    # Убираем строчный префикс "> " и пробуем снова
+    # Попытка 3: kiro рендерит блоки как "> json\n> {...}" — снимаем "> " prefix
     cleaned = re.sub(r"^>\s?", "", raw, flags=re.MULTILINE)
     if cleaned != raw:
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError:
-            pass
-        # Ищем { ... } в очищенном тексте
-        candidate = _extract_balanced_json(cleaned)
-        if candidate:
+        candidates = _extract_all_balanced_json(cleaned)
+        for candidate in reversed(candidates):
             try:
-                return json.loads(candidate)
+                obj = json.loads(candidate)
+                if isinstance(obj, dict):
+                    if not required_keys or any(k in obj for k in required_keys):
+                        return obj
             except json.JSONDecodeError:
-                pass
+                continue
 
-    # Попытка 4: балансировка скобок — находим самый длинный корректный JSON-объект
-    candidate = _extract_balanced_json(raw)
-    if candidate:
+    # Попытка 4: найти все { ... } блоки в исходном тексте, взять последний валидный
+    candidates = _extract_all_balanced_json(raw)
+    for candidate in reversed(candidates):
         try:
-            return json.loads(candidate)
+            obj = json.loads(candidate)
+            if isinstance(obj, dict):
+                if not required_keys or any(k in obj for k in required_keys):
+                    return obj
         except json.JSONDecodeError:
-            pass
+            continue
 
     raise ValueError(f"Could not parse JSON from agent response. Raw (first 500 chars): {raw[:500]}")
 
 
 def _extract_balanced_json(text: str) -> str | None:
     """
-    Находит первый сбалансированный JSON-объект в тексте,
+    Находит первый сбалансированный JSON-объект в тексте.
+    Оставлен для обратной совместимости.
+    """
+    results = _extract_all_balanced_json(text)
+    return results[0] if results else None
+
+
+def _extract_all_balanced_json(text: str) -> list[str]:
+    """
+    Находит ВСЕ сбалансированные JSON-объекты верхнего уровня в тексте,
     корректно обрабатывая вложенные скобки и строки с экранированием.
 
     Returns:
-        Строку с JSON-объектом или None если не найдено
+        Список строк с JSON-объектами (в порядке появления в тексте)
     """
-    start = text.find("{")
-    if start == -1:
-        return None
+    results = []
+    pos = 0
+    while pos < len(text):
+        start = text.find("{", pos)
+        if start == -1:
+            break
 
-    depth = 0
-    in_string = False
-    escape_next = False
+        depth = 0
+        in_string = False
+        escape_next = False
+        end = None
 
-    for i, ch in enumerate(text[start:], start):
-        if escape_next:
-            escape_next = False
-            continue
-        if ch == "\\" and in_string:
-            escape_next = True
-            continue
-        if ch == '"':
-            in_string = not in_string
-            continue
-        if in_string:
-            continue
-        if ch == "{":
-            depth += 1
-        elif ch == "}":
-            depth -= 1
-            if depth == 0:
-                return text[start : i + 1]
+        for i, ch in enumerate(text[start:], start):
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == "\\" and in_string:
+                escape_next = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
 
-    return None
+        if end is not None:
+            results.append(text[start : end + 1])
+            pos = end + 1
+        else:
+            break  # незакрытый блок — дальше нет смысла искать
+
+    return results

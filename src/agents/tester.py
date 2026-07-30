@@ -34,6 +34,7 @@ class TesterAgent(BaseAgent):
     template_name = "tester"
     kiro_role = "kiro_default"
     timeout = 480
+    response_keys = ["task_id", "test_files"]
 
     def __init__(
         self,
