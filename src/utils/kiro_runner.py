@@ -33,9 +33,26 @@ def run_kiro_agent(
     Raises:
         RuntimeError: при ошибке запуска или таймауте
     """
+    # Ищем бинарник kiro в нескольких вариантах имён
+    import shutil
+
+    kiro_bin = (
+        shutil.which("kiro-cli-chat")
+        or shutil.which("kiro-cli")
+        or shutil.which("kiro")
+    )
+    if kiro_bin is None:
+        raise RuntimeError(
+            "kiro CLI not found. Make sure 'kiro-cli-chat' (or 'kiro') is installed and in PATH. "
+            "Checked: kiro-cli-chat, kiro-cli, kiro."
+        )
+
+    # --agent задаёт профиль агента (kiro_default / kiro_planner / kiro_guide)
+    cmd = [kiro_bin, "chat", "--no-interactive", "--agent", role, "--trust-all-tools"]
+
     try:
         result = subprocess.run(
-            ["kiro", "chat", "--no-interactive", "--role", role],
+            cmd,
             input=prompt,
             capture_output=True,
             text=True,
@@ -46,13 +63,23 @@ def run_kiro_agent(
             raise RuntimeError(
                 f"kiro agent exited with code {result.returncode}: {result.stderr[:500]}"
             )
-        return result.stdout.strip()
+        output = result.stdout.strip()
+        # Убираем ANSI escape-коды (цвет, перемещение курсора и т.д.)
+        output = _strip_ansi(output)
+        return output
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"kiro agent timed out after {timeout}s") from exc
     except FileNotFoundError as exc:
         raise RuntimeError(
-            "kiro CLI not found. Make sure 'kiro' is installed and in PATH."
+            f"kiro CLI binary not found at '{kiro_bin}'. Make sure it is installed and in PATH."
         ) from exc
+
+
+def _strip_ansi(text: str) -> str:
+    """Удалить ANSI escape-последовательности из текста."""
+    import re
+    ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+    return ansi_escape.sub("", text)
 
 
 def parse_json_response(raw: str) -> dict[str, Any]:
