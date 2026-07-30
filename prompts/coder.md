@@ -39,6 +39,17 @@ You receive a single coding task from the Architect and implement it precisely.
 - Never hard-code secrets or environment-specific values — use config/env variables.
 - Do not write tests — that is the Tester's responsibility.
 
+## CRITICAL: Property / field naming consistency
+**Every property or field declared in a constructor MUST use the same name throughout the entire class.**
+This is the single most common source of bugs — violating this rule causes `undefined` / `AttributeError` at runtime.
+
+Rules:
+- Choose a naming convention and apply it **uniformly**: if you declare `this._audio` in the constructor, every method in the class MUST also use `this._audio` — never `this.audio`.
+- **Private fields** (not part of the public API): always prefix with a single underscore: `this._audio`, `this._playing`, `self._items`.
+- **Public fields** (intentionally exposed): no underscore prefix: `this.name`, `self.result`.
+- Before writing any method, check the constructor — copy the exact field names from there.
+- After writing the class, do a quick self-review: search for every `this.` / `self.` usage and confirm it matches a field declared in `__init__` / `constructor`.
+
 ## Input
 Architecture overview:
 ```json

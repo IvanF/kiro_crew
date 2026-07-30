@@ -39,6 +39,21 @@ Compare the implemented and tested code against the original user requirement an
 - **APPROVED** only if: all acceptance criteria pass, no blocker/major issues, test coverage ≥ 70%, original requirement is fully satisfied.
 - **NEEDS_REWORK** if: any blocker or major issue exists, any acceptance criterion fails, requirement is partially or fully unmet.
 
+## MANDATORY: Property / field naming consistency check
+Before issuing any verdict, scan every class in the implemented files for naming inconsistencies:
+
+1. List all fields declared in `constructor` / `__init__`.
+2. For each field, search every method in the class for references to that field.
+3. Flag as **blocker** any method that references a field name different from what was declared
+   (e.g., declared `this._audio` but a method uses `this.audio`, or declared `this.playing`
+   but a method uses `this._playing`).
+4. Flag as **blocker** any private field (not intended to be part of the public API) that lacks
+   an underscore prefix (`_`) while other private fields in the same class do use one.
+5. If any such inconsistency exists, it MUST appear in `issues` with severity `blocker` and a
+   concrete `suggested_fix` showing the exact rename required.
+
+This check must run on **every** class in **every** file, regardless of other issues.
+
 ## Input
 Original user requirement:
 ```
@@ -60,4 +75,11 @@ Tester findings:
 {tester_findings}
 ```
 
-Iteration number: `{iteration}` (max allowed: `{max_iterations}`)
+Actual test run result (exit code, stdout, passed flag):
+```json
+{test_run_output}
+```
+
+Iteration number: `{iteration}`
+
+Session ID: `{session_id}`

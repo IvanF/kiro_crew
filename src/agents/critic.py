@@ -2,6 +2,10 @@
 src/agents/critic.py
 Агент-критик: сравнивает результат с требованиями и выносит вердикт
 APPROVED или NEEDS_REWORK.
+
+Примечание: решение о force-approve при исчерпании итераций принимается
+кондуктором (_process_task), а не здесь — это устраняет race condition
+и делает логику ветвления централизованной.
 """
 from __future__ import annotations
 
@@ -10,10 +14,6 @@ from typing import Any
 
 from src.agents.base import BaseAgent
 from src.utils.session_logger import SessionLogger
-
-
-# Порог для автоматического одобрения
-APPROVE_SCORE_THRESHOLD = 70
 
 
 class CriticAgent(BaseAgent):
@@ -45,10 +45,8 @@ class CriticAgent(BaseAgent):
     def __init__(
         self,
         session_logger: SessionLogger,
-        max_iterations: int = 3,
     ) -> None:
         super().__init__(session_logger)
-        self._max_iterations = max_iterations
 
     def review(
         self,
@@ -56,8 +54,9 @@ class CriticAgent(BaseAgent):
         task: dict[str, Any],
         implemented_files: list[dict[str, Any]],
         tester_findings: list[dict[str, Any]],
-        iteration: int,
-        session_id: str,
+        test_run_output: dict[str, Any] | None = None,
+        iteration: int = 1,
+        session_id: str = "",
     ) -> dict[str, Any]:
         """
         Провести код-ревью для одной задачи.
@@ -67,28 +66,20 @@ class CriticAgent(BaseAgent):
             task: спецификация задачи от архитектора
             implemented_files: файлы от кодера
             tester_findings: список находок от тестировщика
+            test_run_output: фактический результат запуска тестов (exit_code, stdout, passed)
             iteration: номер текущей итерации доработки
             session_id: ID сессии
 
         Returns:
             Вердикт с полным отчётом
         """
-        # Если достигнут лимит итераций — принудительно одобряем с предупреждением
-        if iteration >= self._max_iterations:
-            self.logger.log(
-                phase="CRITIC",
-                agent="critic",
-                message=f"Max iterations ({self._max_iterations}) reached — forcing APPROVED",
-            )
-            return self._force_approve(task, session_id, iteration)
-
         result = self.run(
             user_requirement=user_requirement,
             task=json.dumps(task, ensure_ascii=False, indent=2),
             implemented_files=json.dumps(implemented_files, ensure_ascii=False, indent=2),
             tester_findings=json.dumps(tester_findings, ensure_ascii=False, indent=2),
+            test_run_output=json.dumps(test_run_output or {}, ensure_ascii=False, indent=2),
             iteration=str(iteration),
-            max_iterations=str(self._max_iterations),
             session_id=session_id,
         )
 
@@ -107,34 +98,6 @@ class CriticAgent(BaseAgent):
     def get_rework_instructions(self, review_result: dict[str, Any]) -> str:
         """Возвращает инструкции по доработке для кодера."""
         return review_result.get("rework_instructions", "")
-
-    # ------------------------------------------------------------------
-    # Private helpers
-    # ------------------------------------------------------------------
-
-    def _force_approve(
-        self,
-        task: dict[str, Any],
-        session_id: str,
-        iteration: int,
-    ) -> dict[str, Any]:
-        """Формирует принудительный APPROVED при достижении лимита итераций."""
-        return {
-            "session_id": session_id,
-            "task_id": task["id"],
-            "verdict": "APPROVED",
-            "score": 50,
-            "summary": f"Force-approved after {iteration} iterations (max={self._max_iterations})",
-            "compliance_check": {
-                "requirement_met": True,
-                "architecture_followed": True,
-                "acceptance_criteria": [],
-            },
-            "issues": [],
-            "rework_instructions": "",
-            "approved_files": [],
-            "force_approved": True,
-        }
 
     # ------------------------------------------------------------------
     # Validation

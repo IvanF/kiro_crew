@@ -49,6 +49,7 @@ class TesterAgent(BaseAgent):
         architecture: dict[str, Any],
         task: dict[str, Any],
         implemented_files: list[dict[str, Any]],
+        context_files: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         """
         Создать и запустить тесты для реализованного кода.
@@ -56,7 +57,10 @@ class TesterAgent(BaseAgent):
         Args:
             architecture: архитектурный документ
             task: спецификация задачи
-            implemented_files: список файлов от кодера (path + content)
+            implemented_files: список файлов от кодера для текущей задачи (path + content)
+            context_files: ранее реализованные файлы (зависимости задачи) —
+                           позволяют тестировщику корректно мокировать зависимости
+                           и понимать общий контекст проекта
 
         Returns:
             Полный отчёт тестирования
@@ -65,6 +69,7 @@ class TesterAgent(BaseAgent):
             architecture=json.dumps(architecture, ensure_ascii=False, indent=2),
             task=json.dumps(task, ensure_ascii=False, indent=2),
             implemented_files=json.dumps(implemented_files, ensure_ascii=False, indent=2),
+            context_files=json.dumps(context_files or [], ensure_ascii=False, indent=2),
         )
 
         # Сохраняем тестовые файлы
@@ -100,24 +105,28 @@ class TesterAgent(BaseAgent):
         Запускает тесты в изолированном процессе.
 
         Returns:
-            Словарь с 'exit_code', 'stdout', 'stderr'
+            Словарь с 'exit_code', 'stdout', 'stderr', 'passed'
         """
         if not command:
-            return {"exit_code": -1, "stdout": "", "stderr": "No test command provided"}
+            return {"exit_code": -1, "stdout": "", "stderr": "No test command provided", "passed": False}
 
         # Базовая санация: разрешаем только известные тест-раннеры
         import shlex
         try:
             parts = shlex.split(command)
         except ValueError as e:
-            return {"exit_code": -1, "stdout": "", "stderr": f"Invalid command syntax: {e}"}
+            return {"exit_code": -1, "stdout": "", "stderr": f"Invalid command syntax: {e}", "passed": False}
 
         ALLOWED_RUNNERS = {"pytest", "python", "python3", "npm", "npx", "jest", "vitest", "node"}
         if not parts or parts[0].split("/")[-1].split("\\")[-1] not in ALLOWED_RUNNERS:
             return {
                 "exit_code": -1,
                 "stdout": "",
-                "stderr": f"Disallowed test runner: '{parts[0] if parts else ''}'. Allowed: {ALLOWED_RUNNERS}",
+                "stderr": (
+                    f"Disallowed test runner: '{parts[0] if parts else ''}'. "
+                    f"Allowed: {ALLOWED_RUNNERS}"
+                ),
+                "passed": False,
             }
 
         self.logger.log(
@@ -147,7 +156,12 @@ class TesterAgent(BaseAgent):
             )
             return result
         except subprocess.TimeoutExpired:
-            return {"exit_code": -1, "stdout": "", "stderr": "Test run timed out after 120s", "passed": False}
+            return {
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": "Test run timed out after 120s",
+                "passed": False,
+            }
         except Exception as exc:  # noqa: BLE001
             return {"exit_code": -1, "stdout": "", "stderr": str(exc), "passed": False}
 

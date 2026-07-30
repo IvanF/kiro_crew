@@ -73,7 +73,17 @@ Task definition:
 {task}
 ```
 
-Implemented files:
+Implemented files (current task — these are the files you are testing):
 ```json
 {implemented_files}
 ```
+
+Previously implemented files (context — files from earlier tasks that this task depends on):
+```json
+{context_files}
+```
+
+**Important:** The files in `context_files` are already in the project. When writing tests for
+the current task, you may import or reference them. Mock them at the boundary where appropriate,
+but do NOT re-test their internals — focus on the current task's files only.
+If `context_files` is an empty array `[]`, this is the first task and there are no prior files.
