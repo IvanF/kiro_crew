@@ -104,6 +104,21 @@ class TesterAgent(BaseAgent):
         if not command:
             return {"exit_code": -1, "stdout": "", "stderr": "No test command provided"}
 
+        # Базовая санация: разрешаем только известные тест-раннеры
+        import shlex
+        try:
+            parts = shlex.split(command)
+        except ValueError as e:
+            return {"exit_code": -1, "stdout": "", "stderr": f"Invalid command syntax: {e}"}
+
+        ALLOWED_RUNNERS = {"pytest", "python", "python3", "npm", "npx", "jest", "vitest", "node"}
+        if not parts or parts[0].split("/")[-1].split("\\")[-1] not in ALLOWED_RUNNERS:
+            return {
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": f"Disallowed test runner: '{parts[0] if parts else ''}'. Allowed: {ALLOWED_RUNNERS}",
+            }
+
         self.logger.log(
             phase="TESTER",
             agent="tester",

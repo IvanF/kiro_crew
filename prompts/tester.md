@@ -31,6 +31,16 @@ Given the implemented code for a task, write comprehensive tests that expose all
 }
 ```
 
+## CRITICAL: JSON encoding rules
+- The entire response MUST be valid JSON parseable by `json.loads()`.
+- The `content` field contains source code as a **JSON string**: all special characters MUST be escaped:
+  - Newlines → `\n` (not literal line breaks)
+  - Double quotes → `\"` 
+  - Backslashes → `\\`
+  - Triple-quoted docstrings `"""..."""` → use `\"\"\"...\"\"\"` or replace with single-line comments
+- Do NOT use literal newlines inside JSON string values.
+- Do NOT wrap the response in markdown code fences (` ```json `) — output raw JSON only.
+
 ## Rules
 - Write **minimum 20 test cases** per module, covering:
   - Happy path with multiple valid inputs

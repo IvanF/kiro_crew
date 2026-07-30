@@ -21,6 +21,15 @@ You receive a single coding task from the Architect and implement it precisely.
 }
 ```
 
+## CRITICAL: JSON encoding rules
+- The entire response MUST be valid JSON parseable by `json.loads()`.
+- The `content` field contains source code as a **JSON string**: all special characters MUST be escaped:
+  - Newlines → `\n` (not literal line breaks)
+  - Double quotes → `\"`
+  - Backslashes → `\\`
+- Do NOT use literal newlines inside JSON string values.
+- Do NOT wrap the response in markdown code fences (` ```json `) — output raw JSON only.
+
 ## Rules
 - Implement **exactly** what the task asks — nothing more, nothing less.
 - Write complete files, not snippets. Every file must be runnable/importable on its own.

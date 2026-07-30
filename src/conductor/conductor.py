@@ -99,8 +99,7 @@ class Conductor:
             self._print(f"🏗️  Architecture ready. Tasks to implement: {len(tasks)}")
 
             # Определяем порядок выполнения задач
-            architect = ArchitectAgent(self._logger)  # type: ignore[arg-type]
-            task_waves = architect.get_task_order(tasks)
+            task_waves = self._architect.get_task_order(tasks)  # type: ignore[union-attr]
 
             # Состояния всех задач
             task_states: dict[int, TaskState] = {
@@ -238,7 +237,7 @@ class Conductor:
         self._session_dir = self.OUTPUT_BASE / self._session_id
         self._session_dir.mkdir(parents=True, exist_ok=True)
 
-        self._logger = SessionLogger(self._session_id)
+        self._logger = SessionLogger(self._session_id, artifacts_dir=self._session_dir)
 
         self._architect = ArchitectAgent(self._logger)
         self._coder = CoderAgent(self._logger, output_dir=self._session_dir)

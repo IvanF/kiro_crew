@@ -24,9 +24,12 @@ logging.basicConfig(
 class SessionLogger:
     """Потокобезопасный логгер сессии. Каждая сессия — отдельный JSON-файл."""
 
-    def __init__(self, session_id: str) -> None:
+    def __init__(self, session_id: str, artifacts_dir: Path | None = None) -> None:
         self.session_id = session_id
         self._log_path = OUTPUT_DIR / f"{session_id}.json"
+        # Директория для артефактов: явно переданная или рядом с лог-файлом
+        self._artifacts_dir: Path = artifacts_dir or (OUTPUT_DIR / session_id)
+        self._artifacts_dir.mkdir(parents=True, exist_ok=True)
         self._entries: list[dict[str, Any]] = []
         self._logger = logging.getLogger(f"session.{session_id}")
         self._save()
@@ -57,14 +60,13 @@ class SessionLogger:
 
     def save_artifact(self, name: str, data: Any) -> Path:
         """Сохранить артефакт (код, тесты, отчёт) в директорию сессии."""
-        artifact_dir = OUTPUT_DIR / self.session_id
-        artifact_dir.mkdir(parents=True, exist_ok=True)
-        path = artifact_dir / name
+        path = self._artifacts_dir / name
         if isinstance(data, (dict, list)):
-            path.with_suffix(".json").write_text(
+            out = path.with_suffix(".json")
+            out.write_text(
                 json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"
             )
-            return path.with_suffix(".json")
+            return out
         else:
             path.write_text(str(data), encoding="utf-8")
             return path
