@@ -60,13 +60,28 @@ def run_kiro_agent(
             timeout=timeout,
             check=False,
         )
-        if result.returncode != 0 and result.stderr:
-            raise RuntimeError(
-                f"kiro agent exited with code {result.returncode}: {result.stderr[:500]}"
-            )
         output = result.stdout.strip()
         # Убираем ANSI escape-коды (цвет, перемещение курсора и т.д.)
         output = _strip_ansi(output)
+
+        if result.returncode != 0:
+            # kiro иногда крашится (exit 101, паника в Rust) уже после того как
+            # полностью записал ответ в stdout. Если stdout непустой — пробуем
+            # использовать его. Если пустой — падаем с ошибкой.
+            if output:
+                import logging
+                logging.getLogger("kiro_runner").warning(
+                    "kiro exited with code %d but stdout is non-empty (%d chars) — using stdout. "
+                    "stderr: %s",
+                    result.returncode,
+                    len(output),
+                    result.stderr[:200],
+                )
+            else:
+                raise RuntimeError(
+                    f"kiro agent exited with code {result.returncode}: {result.stderr[:500]}"
+                )
+
         return output
     except subprocess.TimeoutExpired as exc:
         raise RuntimeError(f"kiro agent timed out after {timeout}s") from exc

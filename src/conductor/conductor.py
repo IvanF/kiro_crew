@@ -256,12 +256,19 @@ class Conductor:
             # Передаём context_files чтобы тестировщик видел все ранее реализованные
             # файлы (зависимости текущей задачи) и мог правильно мокировать их.
             self._transition(Phase.TESTER, f"Task {task['id']}, iter {state.iteration}")
-            test_result = self._tester.test(  # type: ignore[union-attr]
-                architecture=architecture,
-                task=task,
-                implemented_files=state.implemented_files,
-                context_files=context_files,
-            )
+            try:
+                test_result = self._tester.test(  # type: ignore[union-attr]
+                    architecture=architecture,
+                    task=task,
+                    implemented_files=state.implemented_files,
+                    context_files=context_files,
+                )
+            except (RuntimeError, ValueError) as exc:
+                # kiro CLI крашнулся или вернул невалидный JSON —
+                # продолжаем с пустым test_result чтобы не ронять весь pipeline.
+                self._log_state(Phase.TESTER, f"Tester agent error (skipped): {exc}")
+                self._print(f"      ⚠️  Tester error (skipped): {str(exc)[:120]}")
+                test_result = {"findings": [], "actual_run_output": {"passed": False, "exit_code": -1, "stdout": "", "stderr": str(exc)}}
             state.test_result = test_result
             findings_count = len(test_result.get("findings", []))
             tests_passed = test_result.get("actual_run_output", {}).get("passed", "unknown")
@@ -286,15 +293,26 @@ class Conductor:
             # test_result передаётся критику чтобы он мог оценить реальные
             # результаты запуска тестов, а не только findings.
             self._transition(Phase.CRITIC, f"Task {task['id']}, iter {state.iteration}")
-            critic_result = self._critic.review(  # type: ignore[union-attr]
-                user_requirement=user_requirement,
-                task=task,
-                implemented_files=state.implemented_files,
-                tester_findings=test_result.get("findings", []),
-                test_run_output=test_result.get("actual_run_output", {}),
-                iteration=state.iteration,
-                session_id=self._session_id,
-            )
+            try:
+                critic_result = self._critic.review(  # type: ignore[union-attr]
+                    user_requirement=user_requirement,
+                    task=task,
+                    implemented_files=state.implemented_files,
+                    tester_findings=test_result.get("findings", []),
+                    test_run_output=test_result.get("actual_run_output", {}),
+                    iteration=state.iteration,
+                    session_id=self._session_id,
+                )
+            except (RuntimeError, ValueError) as exc:
+                # kiro CLI крашнулся или вернул невалидный JSON —
+                # засчитываем как NEEDS_REWORK и продолжаем следующую итерацию.
+                self._log_state(Phase.CRITIC, f"Critic agent error (treating as NEEDS_REWORK): {exc}")
+                self._print(f"      ⚠️  Critic error (NEEDS_REWORK): {str(exc)[:120]}")
+                rework_notes = (
+                    "The previous critic review failed due to a technical error. "
+                    "Please review the implementation carefully and ensure it meets all requirements."
+                )
+                continue
             state.critic_result = critic_result
             verdict = critic_result.get("verdict")
             score = critic_result.get("score")
