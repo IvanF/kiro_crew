@@ -48,7 +48,8 @@ def run_kiro_agent(
         )
 
     # --agent задаёт профиль агента (kiro_default / kiro_planner / kiro_guide)
-    cmd = [kiro_bin, "chat", "--no-interactive", "--agent", role, "--trust-all-tools"]
+    # --wrap never — отключает перенос строк, чтобы не ломать JSON-вывод
+    cmd = [kiro_bin, "chat", "--no-interactive", "--agent", role, "--trust-all-tools", "--wrap", "never"]
 
     try:
         result = subprocess.run(

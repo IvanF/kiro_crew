@@ -73,7 +73,15 @@ class BaseAgent(ABC):
             payload={"response_length": len(raw_response)},
         )
 
-        result = parse_json_response(raw_response, required_keys=self.response_keys or None)
+        try:
+            result = parse_json_response(raw_response, required_keys=self.response_keys or None)
+        except ValueError:
+            # Сохраняем полный сырой ответ для диагностики
+            self.logger.save_artifact(
+                f"debug_raw_{self.template_name}_failed.txt",
+                raw_response,
+            )
+            raise
         self._validate(result)
 
         self.logger.log(

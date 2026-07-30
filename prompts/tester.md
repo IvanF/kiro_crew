@@ -54,6 +54,14 @@ Given the implemented code for a task, write comprehensive tests that expose all
 - Tests must be **fully runnable** with a single command.
 - If you discover a bug in the code, document it in `findings` with severity.
 
+## CRITICAL: File size limits (prevent JSON truncation)
+- Each test file MUST be **≤ 120 lines** of source code.
+- If you need more test cases, **split across multiple files** (e.g. `test_foo_basic.js`, `test_foo_edge.js`).
+- Each file in `test_files` array must be short enough to fit entirely in a JSON string.
+- Prefer fewer, focused test cases per file over one giant file.
+- **Maximum total output size**: keep the entire JSON response under 15 000 characters.
+  If needed, reduce number of test cases — 10 solid cases are better than 20 truncated ones.
+
 ## Input
 Architecture overview:
 ```json
