@@ -34,21 +34,41 @@ class ArchitectAgent(BaseAgent):
     def __init__(self, session_logger: SessionLogger) -> None:
         super().__init__(session_logger)
 
-    def design(self, user_requirement: str, session_id: str) -> dict[str, Any]:
+    def design(
+        self,
+        user_requirement: str,
+        session_id: str,
+        project_snapshot: dict[str, Any] | None = None,
+        edit_mode: bool = False,
+    ) -> dict[str, Any]:
         """
         Запустить архитектора для заданного требования.
 
         Args:
             user_requirement: исходный текст требования от пользователя
             session_id: идентификатор текущей сессии
+            project_snapshot: snapshot существующего проекта (edit-режим)
+            edit_mode: True — используется промт architect_edit.md
 
         Returns:
             Словарь с ключами 'architecture' и 'tasks'
         """
-        result = self.run(
-            user_requirement=user_requirement,
-            session_id=session_id,
-        )
+        # В edit-режиме используем специальный промт
+        original_template = self.template_name
+        if edit_mode:
+            self.template_name = "architect_edit"
+
+        try:
+            result = self.run(
+                user_requirement=user_requirement,
+                session_id=session_id,
+                project_snapshot=json.dumps(
+                    project_snapshot or {}, ensure_ascii=False, indent=2
+                ),
+            )
+        finally:
+            self.template_name = original_template
+
         # Сохраняем архитектуру как артефакт
         self.logger.save_artifact("architecture.json", result)
         return result

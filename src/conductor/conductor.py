@@ -7,14 +7,15 @@ Flow:
                                               ↑___NEEDS_REWORK___|
                                         APPROVED → следующая задача → DONE
 
-Исправления:
-  - force-approve принимается кондуктором ПОСЛЕ получения вердикта NEEDS_REWORK
-    на последней итерации, а не внутри critic.review() (убрана race condition).
-  - test_result (actual_run_output) передаётся критику.
-  - context_files (ранее реализованные файлы) передаются тестировщику.
-  - Ошибка парсинга JSON от кодера перехватывается и даёт retry со специальной
-    инструкцией по формату вместо падения всего pipeline.
-  - Force-approve логируется в финальный отчёт.
+Режимы:
+  create (по умолчанию) — создание проекта с нуля.
+  edit   (project_dir передан) — анализ и правка существующего проекта.
+    В edit-режиме:
+      - Conductor сканирует project_dir через ProjectReader и строит snapshot.
+      - Архитектор получает промт architect_edit.md + snapshot существующего кода.
+      - Кодер получает промт coder_edit.md + original_content файлов и возвращает
+        mode=patch/create/delete для каждого файла.
+      - Conductor записывает правки обратно в project_dir (не в output/).
 """
 from __future__ import annotations
 
@@ -22,7 +23,7 @@ import json
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from enum import Enum, auto
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -31,6 +32,7 @@ from src.agents.coder import CoderAgent
 from src.agents.critic import CriticAgent
 from src.agents.tester import TesterAgent
 from src.utils.session_logger import SessionLogger
+from src.utils.project_reader import ProjectSnapshot, read_project
 
 
 class Phase(str, Enum):
@@ -81,9 +83,15 @@ class Conductor:
         self,
         max_iterations_per_task: int = 3,
         verbose: bool = True,
+        project_dir: Path | None = None,
     ) -> None:
         self.max_iterations = max_iterations_per_task
         self.verbose = verbose
+
+        # Если задан — активируется edit-режим
+        self._project_dir: Path | None = Path(project_dir).resolve() if project_dir else None
+        self._edit_mode: bool = self._project_dir is not None
+        self._project_snapshot: ProjectSnapshot | None = None
 
         # Сессия создаётся при запуске run()
         self._session_id: str = ""
@@ -111,10 +119,23 @@ class Conductor:
             Финальный отчёт со всеми артефактами
         """
         self._init_session()
+        mode_label = f"✏️  edit ({self._project_dir})" if self._edit_mode else "🆕 create"
         self._print(f"🎼 Session started: {self._session_id}")
+        self._print(f"🎯 Mode: {mode_label}")
         self._print(f"📋 Requirement: {user_requirement[:200]}...")
 
         try:
+            # Edit-режим: сканируем существующий проект
+            if self._edit_mode and self._project_dir:
+                self._print(f"🔍 Scanning project: {self._project_dir}")
+                self._project_snapshot = read_project(self._project_dir)
+                self._print(f"📦 Snapshot: {self._project_snapshot.summary()}")
+                self._logger.log(  # type: ignore[union-attr]
+                    phase="INIT",
+                    agent="conductor",
+                    message=f"Project snapshot built: {self._project_snapshot.summary()}",
+                )
+
             # Фаза 1: архитектор
             arch_result = self._run_architect(user_requirement)
             architecture = arch_result["architecture"]
@@ -130,21 +151,28 @@ class Conductor:
             }
 
             # Контекст файлов для кодера и тестировщика (накапливается по мере реализации)
+            # В edit-режиме начальный контекст = существующие файлы проекта
             context_files: list[dict[str, Any]] = []
+            if self._edit_mode and self._project_snapshot:
+                context_files = [
+                    {"path": f.path, "content": f.content, "language": f.language}
+                    for f in self._project_snapshot.files
+                ]
 
             # Фаза 2+: CODER → TESTER → CRITIC для каждой задачи
             for wave_idx, wave in enumerate(task_waves):
                 self._print(f"\n🌊 Wave {wave_idx + 1}/{len(task_waves)}: {len(wave)} task(s)")
                 for task in wave:
                     state = task_states[task["id"]]
-                    approved = self._process_task(
+                    self._process_task(
                         state=state,
                         architecture=architecture,
                         user_requirement=user_requirement,
                         context_files=context_files,
                     )
-                    # Добавляем реализованные файлы в контекст для следующих задач
-                    if state.implemented_files:
+                    # В create-режиме накапливаем новые файлы в контекст.
+                    # В edit-режиме контекст уже содержит весь проект — не дублируем.
+                    if not self._edit_mode and state.implemented_files:
                         context_files.extend(state.implemented_files)
 
             # Финальный отчёт
@@ -167,6 +195,8 @@ class Conductor:
         result = self._architect.design(  # type: ignore[union-attr]
             user_requirement=user_requirement,
             session_id=self._session_id,
+            project_snapshot=self._project_snapshot.to_dict() if self._project_snapshot else None,
+            edit_mode=self._edit_mode,
         )
         self._log_state(
             phase=Phase.ARCHITECT,
@@ -312,6 +342,7 @@ class Conductor:
                     task=task,
                     context_files=context_files,
                     rework_notes=current_notes,
+                    edit_mode=self._edit_mode,
                 )
                 return result
             except ValueError as exc:
@@ -385,7 +416,7 @@ class Conductor:
         self._logger = SessionLogger(self._session_id, artifacts_dir=self._session_dir)
 
         self._architect = ArchitectAgent(self._logger)
-        self._coder = CoderAgent(self._logger, output_dir=self._session_dir)
+        self._coder = CoderAgent(self._logger, output_dir=self._session_dir, project_dir=self._project_dir)
         self._tester = TesterAgent(self._logger, output_dir=self._session_dir)
         self._critic = CriticAgent(self._logger)
 
@@ -464,6 +495,14 @@ class Conductor:
             ],
         }
 
+        # Edit-режим: добавляем статистику по изменённым файлам
+        if self._edit_mode:
+            report["project_dir"] = str(self._project_dir)
+            modified, created, deleted = self._collect_edit_stats(task_states)
+            report["modified_files"] = modified
+            report["created_files"] = created
+            report["deleted_files"] = deleted
+
         if self._logger:
             self._logger.save_artifact("final_report.json", report)
             self._logger.log(
@@ -478,6 +517,33 @@ class Conductor:
         self._transition(Phase.DONE, "Pipeline finished")
         self._print(f"\n🎉 Done! Report saved to {self._session_dir}/final_report.json")
         return report
+
+    def _collect_edit_stats(
+        self,
+        task_states: dict[int, TaskState],
+    ) -> tuple[list[str], list[str], list[str]]:
+        """
+        Собирает статистику по изменённым/созданным/удалённым файлам
+        в edit-режиме на основе mode-полей из ответов кодера.
+        """
+        modified: list[str] = []
+        created: list[str] = []
+        deleted: list[str] = []
+        for state in task_states.values():
+            for f in state.implemented_files:
+                path = f.get("path", "")
+                mode = f.get("mode", "patch")
+                if mode == "delete":
+                    deleted.append(path)
+                elif mode == "create":
+                    created.append(path)
+                else:
+                    modified.append(path)
+        return (
+            sorted(set(modified)),
+            sorted(set(created)),
+            sorted(set(deleted)),
+        )
 
     def _build_error_report(self, user_requirement: str, error: str) -> dict[str, Any]:
         """Отчёт при критической ошибке."""
