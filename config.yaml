@@ -1,0 +1,41 @@
+# config.yaml
+# Конфигурация AI Crew — команды нейросетевых агентов на базе kiro_cli
+
+conductor:
+  # Максимум итераций переработки на одну задачу перед принудительным APPROVED
+  max_iterations_per_task: 3
+  # Выводить прогресс в stdout
+  verbose: true
+
+agents:
+  architect:
+    kiro_role: kiro_planner
+    # Таймаут ожидания ответа (секунды)
+    timeout: 600
+
+  coder:
+    kiro_role: kiro_default
+    timeout: 480
+
+  tester:
+    kiro_role: kiro_default
+    timeout: 480
+    # Таймаут выполнения сгенерированных тестов (секунды)
+    test_run_timeout: 120
+
+  critic:
+    kiro_role: kiro_default
+    timeout: 360
+    # Минимальный score для автоматического одобрения (0-100)
+    approve_score_threshold: 70
+
+output:
+  # Базовая директория для сохранения артефактов
+  base_dir: output
+  # Хранить промежуточные артефакты каждой итерации
+  keep_intermediate: true
+
+logging:
+  level: INFO
+  # Формат: console | json
+  format: console
